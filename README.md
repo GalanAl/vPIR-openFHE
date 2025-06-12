@@ -14,11 +14,18 @@
     - make -j
     - make install (or cmake -DCMAKE_INSTALL_PREFIX:PATH=/usr . && make all install)
     
-## Test the code
-- Test the code:
-    - go in the openfhe-development repository
-    - mkdir "rep_for_test"
-    - cp CMakeLists.User.txt rep_for_test/CmakeLists.txt
-    - add the line "add_executable( test_OPENFHE test_OPENFHE.cpp )" in the CMakeLists.txt file
-    - 
+## Clone this rep
+
+- Go in the openfhe-development repository
+- Clone this rep
+- cd vPIR-openFHE
+- mkdir build
+- cd build
+- cmake ..
+- make
+
+## Run the program
+
+-./test_OPENFHE.cpp X 
+- X is the number of cut for the query
 
