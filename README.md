@@ -26,6 +26,6 @@
 
 ## Run the program
 
--./test_OPENFHE.cpp X 
+-./test_OPENFHE X 
 - X is the number of cut for the query
 
