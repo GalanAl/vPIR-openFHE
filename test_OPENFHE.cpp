@@ -10,7 +10,8 @@ using namespace std;
 
 const string DATAFOLDER = "SizeData";
 
-//rotate inplace by k to the right
+//rotate inplace by k slots to the right (warning: Ctxt is a 2x#slots/2 matrix)
+//(1,...,#slot/2,#slot/2+1,...,#slot)-->(#slots/2-k,...,#slots/2-k-1,#slots-k,...,#slots-k-1)
 void rotate_k(Ciphertext<DCRTPoly>& ctxt, const CryptoContext<DCRTPoly>& cc, const int32_t k)
 {
   int32_t sig =k>0?1:-1;
@@ -25,7 +26,7 @@ void rotate_k(Ciphertext<DCRTPoly>& ctxt, const CryptoContext<DCRTPoly>& cc, con
   return;
 }
 
-
+//Copy the value in the first slot into the first row slots
 void fill_slots(Ciphertext<DCRTPoly>& V,const int32_t row, const CryptoContext<DCRTPoly>& cc)
 {
   int32_t r=row;int count =0;long k=1;
@@ -53,7 +54,7 @@ void fill_slots(Ciphertext<DCRTPoly>& V,const int32_t row, const CryptoContext<D
   return;
 }
 
-// write index in corresponding base
+// write index in the base correcponding to the query vector sizes
 void query_gen(vector<vector<int64_t>>& query, const int64_t index)
 { 
   int64_t expo = pow(query[0].size(),query.size()); 
@@ -68,6 +69,7 @@ void query_gen(vector<vector<int64_t>>& query, const int64_t index)
   return;
 }
 
+// generate random verification vectors
 void random_gen(vector<vector<int64_t>>& verif, const CryptoContext<DCRTPoly>& cc)
 {
   srand (time(NULL));
@@ -76,6 +78,7 @@ void random_gen(vector<vector<int64_t>>& verif, const CryptoContext<DCRTPoly>& c
   return;
 }
 
+// pack the query and verification vectors in a single plaintext, depending on the choices vector
 void packing(Plaintext& pack, vector<bool>& choices, vector<vector<int64_t>>& verif, vector<vector<int64_t>>& query, const CryptoContext<DCRTPoly>& cc )
 {
   TimeVar t;
@@ -115,6 +118,7 @@ void packing(Plaintext& pack, vector<bool>& choices, vector<vector<int64_t>>& ve
   return;
 }
 
+// extract the coefficients of the num^th vectors and copy-paste in many slots
 void extract_one(vector<Ciphertext<DCRTPoly>>::iterator beg_V, const Ciphertext<DCRTPoly>& E_pack, const CryptoContext<DCRTPoly>& cc, const int32_t lbd, const int32_t S, const int num)
 {
   TimeVar t;
@@ -140,6 +144,7 @@ void extract_one(vector<Ciphertext<DCRTPoly>>::iterator beg_V, const Ciphertext<
   return;
 }
 
+// extract the coefficients of each rotations of the num^th vectors
 void extract_one_rot(vector<Ciphertext<DCRTPoly>>::iterator beg_V, const Ciphertext<DCRTPoly>& E_pack, const CryptoContext<DCRTPoly>& cc, const int32_t lbd, const int32_t S, const int num, const int L)
 {
   TimeVar t;
@@ -172,6 +177,8 @@ void extract_one_rot(vector<Ciphertext<DCRTPoly>>::iterator beg_V, const Ciphert
   return;
 }
 
+// Old function
+/*
 void extract_coef(vector<Ciphertext<DCRTPoly>>::iterator beg_V, const Ciphertext<DCRTPoly>& E_pack, const CryptoContext<DCRTPoly>& cc, const int32_t lbd, const int64_t sep, const int32_t s_left, const int32_t s_right, const int32_t s_shift,const int32_t row)
 {
   TimeVar t;
@@ -226,6 +233,10 @@ void extract_coef(vector<Ciphertext<DCRTPoly>>::iterator beg_V, const Ciphertext
   cout << "Extract_coef : " << processingTime/1000 << "s" << std::endl;
   return;
 }
+*/
+
+// Old function
+/*
 void extract_rot(vector<Ciphertext<DCRTPoly>>::iterator beg_V, const Ciphertext<DCRTPoly>& E_pack, const CryptoContext<DCRTPoly>& cc, const int32_t lbd, const int64_t sep,const int32_t s_left, const int32_t s_right, const int32_t s_shift,const int32_t row)
 {
   TimeVar t;
@@ -321,7 +332,9 @@ void extract_rot(vector<Ciphertext<DCRTPoly>>::iterator beg_V, const Ciphertext<
   cout << "Extract_rot: " << processingTime/1000 << "s" << std::endl;
   return;
 }
+*/
 
+// generate a random matrix (arranged by diagonals)
 void rand_diag_mat(vector<vector<int64_t>>::iterator beg_M,const int64_t column, const CryptoContext<DCRTPoly>& cc, const int32_t lbd)
 {
   TimeVar t;
@@ -351,6 +364,7 @@ void rand_diag_mat(vector<vector<int64_t>>::iterator beg_M,const int64_t column,
   return;
 }
 
+// get the j^th column of a matrix described by its diagonals
 void get_col_j(vector<int64_t>::iterator beg_col, vector<vector<int64_t>>::const_iterator beg_M, const int64_t j, const int64_t column, const int64_t row)
 {
   vector<int64_t> temp;
@@ -362,6 +376,7 @@ void get_col_j(vector<int64_t>::iterator beg_col, vector<vector<int64_t>>::const
   return;
 }
 
+// matrix-vector product ; sum of each diagonals times rotations of the vector
 void matrix_vector(Ciphertext<DCRTPoly>& MijV2, vector<vector<int64_t>>::const_iterator beg_M, vector<Ciphertext<DCRTPoly>>::const_iterator beg_rot, const CryptoContext<DCRTPoly>& cc, const int64_t column)
 {
   /*
@@ -384,6 +399,7 @@ void matrix_vector(Ciphertext<DCRTPoly>& MijV2, vector<vector<int64_t>>::const_i
   return;
 }
 
+//query evaluation depending on the number of cuts
 void full_evaluation(Ciphertext<DCRTPoly>& Answer, vector<vector<int64_t>>::const_iterator beg_M, vector<vector<Ciphertext<DCRTPoly>>>::const_iterator beg_Extr, const int L, const int32_t S, const CryptoContext<DCRTPoly>& cc)
 {
   Ciphertext<DCRTPoly> T;
@@ -508,7 +524,7 @@ bool verification(vector<int64_t>& expected, vector<int64_t>& result, vector<boo
     {
       for(int32_t j=0;j<row;++j)
       {
-        if(expected[j]!=result[(i>=lbd/2?slots/2+(i-lbd/2)*sep:i*sep)+j]){cout<<"PERDUUUU "<<i<<endl; return false;}
+        if(expected[j]!=result[(i>=lbd/2?slots/2+(i-lbd/2)*sep:i*sep)+j]){cout<<"LOOOSER "<<i<<endl; return false;}
       }
     }
   }
@@ -519,10 +535,11 @@ int main(int argc, char* argv[]) {
     
     if(argc <= 1)
     {
-      cerr << "Usage: " << argv[0] << " number of small pieces (max 6) " << endl;
+      cerr << "Usage: " << argv[0] << " <number of cuts (1 :: 6)><lambda (default = 42)> " << endl;
       exit(0);
     }
     int L = (argc>1?atoi(argv[1]):6);
+    int32_t lbd = (argc>2?((atoi(argv[2])+1)/2)*2:42);
     
     int64_t numthreads(1);
 
@@ -540,19 +557,19 @@ int main(int argc, char* argv[]) {
     //********************* SETUP *********************//
     CCParams<CryptoContextBFVRNS> parameters;
 
-    parameters.SetPlaintextModulus(281474978414593);//
+    parameters.SetPlaintextModulus(281474978414593);
     parameters.SetMaxRelinSkDeg(3);
     parameters.SetMultiplicativeDepth(5);
     parameters.SetSecurityLevel(HEStd_128_classic);
     
 
     CryptoContext<DCRTPoly> cc = GenCryptoContext(parameters);
-    // enable features that you wish to use
+
     cc->Enable(PKE);
     cc->Enable(KEYSWITCH);
     cc->Enable(LEVELEDSHE);
     cc->Enable(ADVANCEDSHE);
-    /*
+    
     if (!Serial::SerializeToFile(DATAFOLDER + "/cryptocontext.txt", cc, SerType::BINARY)) {
         std::cerr << "Error writing serialization of the crypto context to "
                      "cryptocontext.txt"
@@ -560,18 +577,18 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     std::cout << "The cryptocontext has been serialized." << std::endl;
-    */
+    
     int64_t slots = cc->GetCryptoParameters()->GetElementParams()->GetCyclotomicOrder() / 2;
     cout<<"nb slot : "<<slots<<endl;
         
     // Initialize the public key containers.
     KeyPair<DCRTPoly> kp = cc->KeyGen();
-    // 13 = log(slots)/2
+
     std::vector<int32_t> indexList; for(int32_t i=1;i<slots/2;i*=2){ indexList.push_back(int32_t(i));indexList.push_back(int32_t(-i));}
     cc->EvalRotateKeyGen(kp.secretKey, indexList);
     cc->EvalMultKeyGen(kp.secretKey);
     
-    /*
+    
     if (!Serial::SerializeToFile(DATAFOLDER + "/key-public.txt", kp.publicKey, SerType::BINARY)) {
         std::cerr << "Error writing serialization of public key to key-public.txt" << std::endl;
         return 1;
@@ -619,11 +636,16 @@ int main(int argc, char* argv[]) {
         std::cerr << "Error serializing eval rotation keys" << std::endl;
         return 1;
     }
-  */
+  
     //********************* CLIENT SIDE *********************//
-  int32_t lbd = 42,sep = slots/lbd, S = sep/L, row = S*L;
+  int32_t sep = slots/lbd, S = sep/L, row = S*L;
   int64_t column = pow(S,L);
   cout<<"lbd = "<<lbd<<"; row = "<<row<<"; column = "<<column<<"; size vectors S = "<<S<<endl;
+  int64_t DB_size = column*row*6;
+  if(DB_size>pow(10,12)){cout<<"data base size : "<<DB_size/pow(10,12)<<"TB"<<endl;}
+  else if (DB_size>pow(10,9)){cout<<"data base size : "<<DB_size/pow(10,9)<<"GB"<<endl;}
+  else if (DB_size>pow(10,6)){cout<<"data base size : "<<DB_size/pow(10,6)<<"MB"<<endl;}
+  else {cout<<"data base size : "<<DB_size/pow(10,3)<<"KB"<<endl;}
   
   vector<int64_t> length(S,0);
   vector<vector<int64_t>> query(L,length);
@@ -652,13 +674,13 @@ int main(int argc, char* argv[]) {
    
   Ciphertext<DCRTPoly> E_pack = cc->Encrypt(kp.publicKey, pack); 
 
-  /*
+  
   if (!Serial::SerializeToFile(DATAFOLDER + "/" + "firstmessage.txt", E_pack, SerType::BINARY)) {
         std::cerr << "Error writing serialization of firstmessage to firstmessage.txt" << std::endl;
         return 1;
     }
     std::cout << "The first ciphertext has been serialized." << std::endl;
-  */
+  
   vector<int64_t> diag(slots);
   
   // Change S for column for a real life example
@@ -701,7 +723,7 @@ int main(int argc, char* argv[]) {
   }
   processingTime = TOC(t);
   
-  cout << "matrix vector: " << processingTime/(1000*1000) << "s; estimated time : "<<int64_t(pow(S,L-1)*processingTime*numthreads)/(56*1000*1000)<<" s" << std::endl;
+  cout << "matrix vector: " << processingTime/(1000*1000) << "s; estimated time with 56 threads: "<<int64_t(pow(S,L-1)*processingTime*numthreads)/(56*1000*1000)<<" s" << std::endl;
   
   //FULL EVAL 
   processingTime=0.0;
