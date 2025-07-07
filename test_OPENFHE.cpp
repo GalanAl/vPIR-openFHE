@@ -344,15 +344,6 @@ void matrix_vector(Ciphertext<DCRTPoly>& Mat_vec, vector<vector<int64_t>>::const
 
 void full_evaluation(vector<Ciphertext<DCRTPoly>>& Answers, vector<vector<vector<int64_t>>>::const_iterator beg_M, vector<vector<Ciphertext<DCRTPoly>>>::const_iterator beg_extract, const int cuts, const int32_t column, const CryptoContext<DCRTPoly>& cc)
 {
-  int64_t numthreads(1);
-  #if defined(_OPENMP)
-    #pragma omp parallel
-    #pragma omp single
-    {
-      numthreads = omp_get_num_threads();
-    }
-    #endif
-    
   TimeVar t;
   double processingTime(0.0);
   TIC(t);
@@ -680,8 +671,8 @@ int main(int argc, char* argv[])
   {
     Ciphertext<DCRTPoly> time;
     matrix_vector(time, M[0].begin(), all_extractions[cuts-1].begin(),cc,column);
-    vector<Ciphertext<DCRTPoly>> multi(cuts-1,all_extractions[0][l%column]);
-    time *= cc->EvalMultMany(multi);
+    //vector<Ciphertext<DCRTPoly>> multi(cuts-1,all_extractions[0][l%column]);
+    //time *= cc->EvalMultMany(multi);
   }
   processingTime = TOC(t);
   
