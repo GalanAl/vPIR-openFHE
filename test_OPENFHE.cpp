@@ -666,17 +666,25 @@ int main(int argc, char* argv[])
   
   cout << "extractions: " << processingTime/(1000) << "s"<<endl;
   
+  processingTime = 0.0;
+  TIC(t);
   #pragma omp parallel for
   for (long l=0;l<1000;++l)
   {
     Ciphertext<DCRTPoly> time;
-    matrix_vector(time, M[0].begin(), all_extractions[cuts-1].begin(),cc,column);
-    //vector<Ciphertext<DCRTPoly>> multi(cuts-1,all_extractions[0][l%column]);
-    //time *= cc->EvalMultMany(multi);
+    vector<Ciphertext<DCRTPoly>> T(column,time);
+    for (long j=0;j<column;++j)
+    {
+      T[j] = cc->EvalMult(cc->MakePackedPlaintext(M[0][0]),all_extractions[cuts-1][0]);
+    }
+    time = cc->EvalAddMany(T);
+    vector<Ciphertext<DCRTPoly>> Q(cuts,time);
+    time = cc->EvalMultMany(Q);
+    
   }
   processingTime = TOC(t);
   
-  cout << "average time per element : " << processingTime/1000 << "ms; estimated total time: "<<(pow(column,cuts-1)*(processingTime/1000)*N_a)/1000<<" s" << std::endl;
+  cout << "Things to do many times : " << processingTime/1000 << "ms; estimated total time: "<<(pow(column,cuts-1)*processingTime*N_a)/(1000*1000)<<" s" << std::endl;
   
   vector<Ciphertext<DCRTPoly>> Answers(N_a,E_pack);
   
