@@ -215,67 +215,23 @@ void extract_one_rot(vector<Ciphertext<DCRTPoly>>::iterator beg_rot, const vecto
   return;
 }
 
-void full_extraction(vector<vector<Ciphertext<DCRTPoly>>>::iterator beg_extract, const vector<Ciphertext<DCRTPoly>>& E_Packs, const int lbd, const int32_t S, const int cuts, const CryptoContext<DCRTPoly>& cc)
+
+void full_extraction(vector<vector<Ciphertext<DCRTPoly>>>& extracts, const vector<Ciphertext<DCRTPoly>>& E_Packs, const int lbd, const int32_t S, const int cuts, const CryptoContext<DCRTPoly>& cc)
 {
   for(int i = 0;i<cuts-1;++i)
   {
-    extract_one((*(beg_extract+i)).begin(),E_Packs,lbd, S, i, S*cuts, cc);
+    vector<Ciphertext<DCRTPoly>> one(E_Packs.size()*S);
+    extract_one(one.begin(),E_Packs,lbd, S, i, S*cuts, cc);
+    extracts.push_back(one);
   }
-  extract_one_rot((*(beg_extract+cuts-1)).begin(), E_Packs,lbd, S,cuts,cc);
+  vector<Ciphertext<DCRTPoly>> rot(E_Packs.size()*S);
+  extract_one_rot(rot.begin(), E_Packs,lbd, S,cuts,cc);
+  extracts.push_back(rot);
   return;
 }
 
-void verif_extraction(vector<vector<Ciphertext<DCRTPoly>>>& All_extract, vector<bool>& choices, vector<vector<int64_t>>& verif, vector<vector<int64_t>>& query,const int32_t row, const CryptoContext<DCRTPoly>& cc,KeyPair<DCRTPoly>& kp)
-{
-  int32_t slots = cc->GetCryptoParameters()->GetElementParams()->GetCyclotomicOrder() / 2;
-  Plaintext Ptest;
-  vector<int64_t> test;
-  int32_t jump;
-  int64_t value_q,value_v;
-  int cuts = int(All_extract.size());
-  for(int i=0;i<cuts-1;++i)
-  {
-    for(int32_t j=0;j<int32_t(All_extract[i].size());++j)
-    {
-      cc->Decrypt(kp.secretKey, All_extract[i][j], &Ptest);
-      test = Ptest->GetPackedValue();
-      value_q=query[i][j];
-      value_v=verif[i][j];
-      for(int k=0;k<int(choices.size());++k)
-      {
-        jump = k<int(choices.size()+1)/2?0:slots/2-row*((choices.size()+1)/2);
-        for(int32_t l=0;l<row;++l)
-        {
-          if(test[jump+k*row+l]!=(choices[k]?value_q:value_v))
-          {
-            cout<<"FAILURE i="<<i<<" ; j="<<j<<" ; k="<<k<<" ; l="<<l<<endl;
-            return;
-          }
-        }
-      }
-    } 
-  }
-  for(int32_t j=0;j<int32_t(All_extract[cuts-1].size());++j)
-  {
-    cc->Decrypt(kp.secretKey, All_extract[cuts-1][j], &Ptest);
-    test = Ptest->GetPackedValue();
-    for(int k=0;k<int(choices.size());++k)
-    {
-      jump = k<int(choices.size()+1)/2?0:slots/2-row*((choices.size()+1)/2);
-      for(int32_t l=0;l<row;++l)
-      {
-        if(test[jump+k*row+l]!=(choices[k]?query[cuts-1][(j+l)%query[cuts-1].size()]:verif[cuts-1][(j+l)%verif[cuts-1].size()]))
-        {
-          cout<<"FAILURE i="<<cuts-1<<" ; j="<<j<<" ; k="<<k<<" ; l="<<l<<endl;
-          return;
-        }
-      }
-    }
-  }
-}
-
 // generate a random matrix (arranged by diagonals)
-void rand_diag_mat(vector<vector<int64_t>>::iterator beg_M,const int64_t column,const int32_t row, const CryptoContext<DCRTPoly>& cc, const int lbd)
+void rand_diag_mat(vector<Plaintext>::iterator beg_M,const int64_t column,const int32_t row, const CryptoContext<DCRTPoly>& cc, const int lbd)
 {
   TimeVar t;
   double processingTime(0.0);
@@ -295,7 +251,7 @@ void rand_diag_mat(vector<vector<int64_t>>::iterator beg_M,const int64_t column,
         int64_t r = rand()%p;
         for(int k = 0;k<(lbd+1)/2;++k) {diag_i[k*row+j]=r;diag_i[slots/2+k*row+j]=r;}
       }
-      *(beg_M+i) = diag_i;
+      *(beg_M+i) = cc->MakePackedPlaintext(diag_i);
   }
   
   processingTime = TOC(t);
@@ -304,69 +260,61 @@ void rand_diag_mat(vector<vector<int64_t>>::iterator beg_M,const int64_t column,
 }
 
 // get the j^th column of a matrix described by its diagonals
-void get_col_j(vector<int64_t>::iterator beg_col, vector<vector<int64_t>>::const_iterator beg_M, const int64_t j, const int64_t column, const int64_t row)
+void get_col_j(vector<int64_t>::iterator beg_col, vector<Plaintext>::const_iterator beg_M, const int64_t j, const int64_t column, const int64_t row)
 {
-  vector<int64_t> temp;
+  Plaintext temp;
   for(long i =0;i<row;++i)
   {
-    temp = *(beg_M+((j-i)%column+column)%column);//TODO??!!!
-    *(beg_col+i) = temp[i];
+    temp = *(beg_M+((j-i)%column+column)%column);
+    *(beg_col+i) = temp->GetPackedValue()[i];
   }
   return;
 }
-
-// matrix-vector product ; sum of each diagonals times rotations of the vector
-void matrix_vector(Ciphertext<DCRTPoly>& Mat_vec, vector<vector<int64_t>>::const_iterator beg_M_i, vector<Ciphertext<DCRTPoly>>::const_iterator beg_rot, const CryptoContext<DCRTPoly>& cc, const int32_t column)
-{/*
-  int32_t sqr = sqrt(column)+1;
-  vector<Ciphertext<DCRTPoly>> giant(sqr);
-  int32_t j= 0;
-  for(int32_t i=0;i<sqr;++i)
-  {
-    vector<Ciphertext<DCRTPoly>> baby(min(column-i*sqr,sqr));
-    for(;j<min(column,(i+1)*sqr);++j)
-    {
-      baby[j%sqr] = cc->EvalMult(cc->MakePackedPlaintext(*(beg_M_i+j)),*(beg_rot+j));
-    }
-    giant[i] = cc->EvalAddMany(baby);
-  }
-  Mat_vec = cc->EvalAddMany(giant);
-  */
-  vector<Ciphertext<DCRTPoly>> T(column,Mat_vec);  
-  for(int32_t i=0;i<column;++i)
-  {
-    T[i] = cc->EvalMult(cc->MakePackedPlaintext(*(beg_M_i+i)),*(beg_rot+i));
-  }
-  Mat_vec = cc->EvalAddMany(T);
-  
-  return;
-}
-
-void full_evaluation(vector<Ciphertext<DCRTPoly>>& Answers, vector<vector<vector<int64_t>>>::const_iterator beg_M, vector<vector<Ciphertext<DCRTPoly>>>::const_iterator beg_extract, const int cuts, const int32_t column, const CryptoContext<DCRTPoly>& cc)
+void full_evaluation(vector<Ciphertext<DCRTPoly>>& Answers, vector<vector<Plaintext>>::const_iterator beg_M, vector<vector<Ciphertext<DCRTPoly>>>::const_iterator beg_extract, const int cuts, const int32_t column, const CryptoContext<DCRTPoly>& cc)
 {
   TimeVar t;
   double processingTime(0.0);
   TIC(t);
-  
 
   switch(cuts)
   {
     case 1:
     {
-      for(int i=0;i<int(Answers.size());++i) matrix_vector(Answers[i], (*(beg_M+i)).begin(), (*(beg_extract)).begin(),cc,column);
+      vector<Ciphertext<DCRTPoly>>::const_iterator beg_rot = (*(beg_extract)).begin();
+      for(int i=0;i<int(Answers.size());++i)
+      {
+        vector<Ciphertext<DCRTPoly>> Accu(column);
+        vector<Ciphertext<DCRTPoly>>::iterator beg_A = Accu.begin();
+        vector<Plaintext>::const_iterator beg_Mi = (*(beg_M+i)).begin();
+        #pragma omp parallel for shared(beg_A,beg_Mi)
+        for(int32_t A=0;A<column;++A)
+        {
+                *(beg_A+A) =cc->EvalMult(*(beg_Mi+A),*(beg_rot+A));
+        }
+        Answers[i] = cc->EvalAddMany(Accu);
+      }
       break;
     }
     case 2:
     {
-      for(int i=0;i<int(Answers.size());++i) 
+      vector<Ciphertext<DCRTPoly>>::const_iterator beg_v = (*(beg_extract)).begin();
+      vector<Ciphertext<DCRTPoly>>::const_iterator beg_rot = (*(beg_extract+1)).begin();
+      for(int i=0;i<int(Answers.size());++i)
       {
-        vector<Ciphertext<DCRTPoly>> Accu(column,Answers[i]);
+        vector<Ciphertext<DCRTPoly>> Accu(column);
         vector<Ciphertext<DCRTPoly>>::iterator beg_A = Accu.begin();
-        #pragma omp parallel for shared(beg_A,beg_M,beg_extract)
+        vector<Plaintext>::const_iterator beg_Mi = (*(beg_M+i)).begin();
+
+        #pragma omp parallel for shared(beg_A,beg_Mi,beg_rot,beg_v)
         for(int32_t A=0;A<column;++A)
         {
-          matrix_vector(*(beg_A+A), (*(beg_M+i)).begin(), (*(beg_extract+1)).begin(),cc,column);//+A for second argument in real life 
-          (*(beg_A+A)) *= (*(beg_extract))[A];
+                *(beg_A+A) = cc->EvalMult(*(beg_Mi),*(beg_rot));
+                for(int32_t C=1;C<column;++C)
+                {
+                        *(beg_A+A) +=cc->EvalMult(*(beg_Mi+C),*(beg_rot+C));
+                }
+                *(beg_A+A) *= *(beg_v+A);
+
         }
         Answers[i] = cc->EvalAddMany(Accu);
       }
@@ -374,48 +322,65 @@ void full_evaluation(vector<Ciphertext<DCRTPoly>>& Answers, vector<vector<vector
     }
     case 3:
     {
-      for(int i=0;i<int(Answers.size());++i) 
+      vector<Ciphertext<DCRTPoly>>::const_iterator beg_v1 = (*(beg_extract)).begin();
+      vector<Ciphertext<DCRTPoly>>::const_iterator beg_v2 = (*(beg_extract+1)).begin();
+      vector<Ciphertext<DCRTPoly>>::const_iterator beg_rot = (*(beg_extract+2)).begin();
+      for(int i=0;i<int(Answers.size());++i)
       {
-        vector<Ciphertext<DCRTPoly>> Accu(column,Answers[i]);
+        vector<Ciphertext<DCRTPoly>> Accu(column);
         vector<Ciphertext<DCRTPoly>>::iterator beg_A = Accu.begin();
-        
-        #pragma omp parallel for shared(beg_A,beg_M,beg_extract)
+        vector<Plaintext>::const_iterator beg_Mi = (*(beg_M+i)).begin();
+        #pragma omp parallel for shared(beg_A,beg_Mi,beg_rot,beg_v1,beg_v2)
         for(int32_t A=0;A<column;++A)
-        { 
-          vector<Ciphertext<DCRTPoly>> Bccu(column,Answers[i]);
-          for(int32_t B=0;B<column;++B)
-          {
-            matrix_vector(Bccu[B], (*(beg_M+i)).begin(), (*(beg_extract+2)).begin(),cc,column);//+A*column+B for second argument in real life 
-            Bccu[B] *= cc->EvalMult((*(beg_extract))[A],(*(beg_extract+1))[B]);
-          }
-          (*(beg_A+A)) = cc->EvalAddMany(Bccu);
+        {
+                vector<Ciphertext<DCRTPoly>> Bccu(column);
+                for(int32_t B=0;B<column;++B)
+                {
+                        Bccu[B] = cc->EvalMult(*(beg_Mi),*(beg_rot));
+                        for(int32_t C=1;C<column;++C)
+                        {
+                                Bccu[B] +=cc->EvalMult(*(beg_Mi+C),*(beg_rot+C));
+                        }
+                        Bccu[B] *= *(beg_v2+B);
+                }
+                *(beg_A+A) = cc->EvalMult(*(beg_v1+A),cc->EvalAddMany(Bccu));
         }
+
         Answers[i] = cc->EvalAddMany(Accu);
       }
       break;
     }
     case 4:
     {
-      for(int i=0;i<int(Answers.size());++i) 
+      vector<Ciphertext<DCRTPoly>>::const_iterator beg_v1 = (*(beg_extract)).begin();
+      vector<Ciphertext<DCRTPoly>>::const_iterator beg_v2 = (*(beg_extract+1)).begin();
+      vector<Ciphertext<DCRTPoly>>::const_iterator beg_v3 = (*(beg_extract+2)).begin();
+      vector<Ciphertext<DCRTPoly>>::const_iterator beg_rot = (*(beg_extract+3)).begin();
+
+      for(int i=0;i<int(Answers.size());++i)
       {
-        vector<Ciphertext<DCRTPoly>> Accu(column,Answers[i]);
+        vector<Ciphertext<DCRTPoly>> Accu(column);
         vector<Ciphertext<DCRTPoly>>::iterator beg_A = Accu.begin();
-        #pragma omp parallel for shared(beg_A,beg_M,beg_extract)
+        vector<Plaintext>::const_iterator beg_Mi = (*(beg_M+i)).begin();
+        #pragma omp parallel for shared(beg_A,beg_Mi,beg_rot,beg_v1,beg_v2,beg_v3)
         for(int32_t A=0;A<column;++A)
         {
-          vector<Ciphertext<DCRTPoly>> Bccu(column,*beg_A);
-          vector<Ciphertext<DCRTPoly>> Cccu(column,*beg_A);
+          vector<Ciphertext<DCRTPoly>> Bccu(column);
           for(int32_t B=0;B<column;++B)
           {
+            vector<Ciphertext<DCRTPoly>> Cccu(column);
             for(int32_t C=0;C<column;++C)
             {
-              matrix_vector(Cccu[C], (*(beg_M+i)).begin(), (*(beg_extract+3)).begin(),cc,column);//+A*column**2+B*column+C for second argument in real life 
-              Cccu[C] *= (*(beg_extract+2))[C];
-              Cccu[C] *= cc->EvalMult((*(beg_extract))[A],(*(beg_extract+1))[B]);
+                Cccu[C] = cc->EvalMult(*(beg_Mi),*(beg_rot));
+                for(int32_t D=1;D<column;++D)
+                {
+                        Cccu[C] +=cc->EvalMult(*(beg_Mi+D),*(beg_rot+D));
+                }
+                Cccu[C] *= *(beg_v3+C);
             }
-            Bccu[B] = cc->EvalAddMany(Cccu);
+            Bccu[B] = cc->EvalMult(cc->EvalAddMany(Cccu),*(beg_v2+B));
           }
-          (*(beg_A+A)) = cc->EvalAddMany(Bccu);
+          (*(beg_A+A)) = cc->EvalMult(cc->EvalAddMany(Bccu),*(beg_v1+A));
         }
         Answers[i] = cc->EvalAddMany(Accu);
       }
@@ -423,37 +388,48 @@ void full_evaluation(vector<Ciphertext<DCRTPoly>>& Answers, vector<vector<vector
     }
     case 5:
     {
-      for(int i=0;i<int(Answers.size());++i) 
+      vector<Ciphertext<DCRTPoly>>::const_iterator beg_v1 = (*(beg_extract)).begin();
+      vector<Ciphertext<DCRTPoly>>::const_iterator beg_v2 = (*(beg_extract+1)).begin();
+      vector<Ciphertext<DCRTPoly>>::const_iterator beg_v3 = (*(beg_extract+2)).begin();
+      vector<Ciphertext<DCRTPoly>>::const_iterator beg_v4 = (*(beg_extract+3)).begin();
+      vector<Ciphertext<DCRTPoly>>::const_iterator beg_rot = (*(beg_extract+4)).begin();
+
+      for(int i=0;i<int(Answers.size());++i)
       {
-        vector<Ciphertext<DCRTPoly>> Accu(column,Answers[i]);
+        vector<Ciphertext<DCRTPoly>> Accu(column);
         vector<Ciphertext<DCRTPoly>>::iterator beg_A = Accu.begin();
-        #pragma omp parallel for shared(beg_A,beg_M,beg_extract)
-        for(int32_t A=0;A<column;++A)
+        vector<Plaintext>::const_iterator beg_Mi = (*(beg_M+i)).begin();
+        #pragma omp parallel for shared(beg_A,beg_Mi,beg_rot,beg_v1,beg_v2,beg_v3,beg_v4)
+        for(int32_t A=0;A<column;++A) //TODO AB=0<<column**2 ?
         {
-          vector<Ciphertext<DCRTPoly>> Bccu(column,*beg_A);
-          vector<Ciphertext<DCRTPoly>> Cccu(column,*beg_A);
-          vector<Ciphertext<DCRTPoly>> Dccu(column,*beg_A);
+          vector<Ciphertext<DCRTPoly>> Bccu(column);
           for(int32_t B=0;B<column;++B)
           {
+            vector<Ciphertext<DCRTPoly>> Cccu(column);
             for(int32_t C=0;C<column;++C)
             {
-              for(int32_t D=0;D<column;++D)
-              {
-                matrix_vector(Dccu[D], (*(beg_M+i)).begin(), (*(beg_extract+4)).begin(),cc,column);//+A*column**3+B*column**2+C*column+D for second argument in real life 
-                Dccu[D] *= cc->EvalMult(cc->EvalMult((*(beg_extract))[A],(*(beg_extract+1))[B]),cc->EvalMult((*(beg_extract+2))[C],(*(beg_extract+3))[D]));
-              }
-              Cccu[C] = cc->EvalAddMany(Dccu);
+                vector<Ciphertext<DCRTPoly>> Dccu(column);
+                for(int32_t D=0;D<column;++D)
+                {
+                        Dccu[D] = cc->EvalMult(*(beg_Mi),*(beg_rot));
+                        for(int32_t E=1;E<column;++E)
+                        {
+                                Dccu[D] +=cc->EvalMult(*(beg_Mi+E),*(beg_rot+E));
+                        }
+                        Dccu[D] *= *(beg_v4+D);
+                }
+                Cccu[C] = cc->EvalMult(cc->EvalAddMany(Dccu),*(beg_v3+C));;
             }
-            Bccu[B] = cc->EvalAddMany(Cccu);
+            Bccu[B] = cc->EvalMult(cc->EvalAddMany(Cccu),*(beg_v2+B));
           }
-          (*(beg_A+A)) = cc->EvalAddMany(Bccu);
+          (*(beg_A+A)) = cc->EvalMult(cc->EvalAddMany(Bccu),*(beg_v1+A));
         }
         Answers[i] = cc->EvalAddMany(Accu);
       }
       break;
     }
   }
-  
+
   processingTime = TOC(t);
   cout << "Full_evaluation: " << processingTime/1000 << "s" << std::endl;
   return;
@@ -616,9 +592,9 @@ int main(int argc, char* argv[])
   query_gen(query, index);
   random_gen(verif, cc);
   
-  Plaintext pack;
+  Plaintext pack = cc->MakePackedPlaintext(vector<int64_t>(slots,0));
   vector<Plaintext> Packs(N_q,pack);
-  Ciphertext<DCRTPoly> E_pack;
+  Ciphertext<DCRTPoly> E_pack = cc->Encrypt(kp.publicKey, pack);
   vector<Ciphertext<DCRTPoly>> E_Packs(N_q,E_pack);
   
   packing(Packs, choice, verif, query, cc);
@@ -636,9 +612,73 @@ int main(int argc, char* argv[])
   
   vector<int64_t> diag(slots);
   
+  // VERIF TIMINGS 
+  vector<Ciphertext<DCRTPoly>> accu(numthreads,E_pack);
+
+  TimeVar t;
+  double processingTime(0.0);
+  TIC(t);
+  #pragma omp parallel for
+  for (long l=0;l<10000;++l)
+  {
+    accu[omp_get_thread_num()] += E_Packs[(l+1)%N_q];
+  }
+  processingTime = TOC(t);
+  double hom_add = processingTime/10000;
+
+  Ciphertext<DCRTPoly> Eres = cc->EvalAddMany(accu);
+  Plaintext Pres;
+  cc->Decrypt(kp.secretKey, Eres, &Pres);
+  cout<<bool(Pres==pack);
+
+  accu = vector<Ciphertext<DCRTPoly>>(numthreads,E_pack);
+
+  processingTime=0.0;
+  TIC(t);
+  #pragma omp parallel for
+  for (long l=0;l<10000;++l)
+  {
+    accu[omp_get_thread_num()] += cc->EvalMult(Packs[l%N_q],E_Packs[l%N_q]);
+  }
+  processingTime = TOC(t);
+  double ptxt_ctxt = processingTime/10000 - hom_add;
+
+  Eres = cc->EvalAddMany(accu);
+
+  cc->Decrypt(kp.secretKey, Eres, &Pres);
+  cout<<bool(Pres==pack);
+
+  accu = vector<Ciphertext<DCRTPoly>>(numthreads,E_pack);
+
+  processingTime=0.0;
+  TIC(t);
+  #pragma omp parallel for
+  for (long l=0;l<1000;++l)
+  {
+    accu[omp_get_thread_num()] += cc->EvalMult(E_Packs[(l+1)%N_q],E_Packs[l%N_q]);
+  }
+  processingTime = TOC(t);
+  double ctxt_ctxt = processingTime/1000-hom_add;
+  Eres = cc->EvalAddMany(accu);
+
+  cc->Decrypt(kp.secretKey, Eres, &Pres);
+  cout<<bool(Pres==pack)<<endl;
+
+  cout << "ptxt-ctxt product in parallel : " << ptxt_ctxt<< "ms;"<<endl;
+  ptxt_ctxt = N_a*double(pow(N_q*S,cuts))*(ptxt_ctxt)/1000;
+  cout << "add in parallel : " << hom_add<< "ms;"<<endl;
+  double x=0;
+  for (int c=0;c<cuts;++c) x+= double(pow(N_q*S,c+1));
+  hom_add=N_a*x*(hom_add)/1000;
+  cout << "ctxt-ctxt product in parallel : " << ctxt_ctxt<< "ms;"<<endl;
+  ctxt_ctxt=N_a*(x/(N_q*S))*ctxt_ctxt/1000;
+  cout<<"estimated ptxt-ctxt total time : "<<ptxt_ctxt<<" s" << endl;
+  cout<<"estimated add total time : "<<hom_add<<" s" << endl;
+  cout<<"estimated ctxt-ctxt total time : "<<ctxt_ctxt<<" s" << endl;
+  cout<<"estimated TOTAL time : "<<ctxt_ctxt+hom_add+ptxt_ctxt<<" s" << endl;
   
   column=N_q*S;index = index%(N_q*S); // Delete this line for a real example
-  vector<vector<int64_t>> M_i(column,diag); vector<vector<vector<int64_t>>> M(N_a,M_i);
+  vector<Plaintext> M_i(column); vector<vector<Plaintext>> M(N_a,M_i);
 
   for(int i=0;i<N_a;++i)
   {
@@ -651,44 +691,21 @@ int main(int argc, char* argv[])
     get_col_j(expected[i].begin(),M[i].begin(),index,column,row);
   }
   
-  //cout<<"EXPECTED "<<expected<<endl;
+  //vector<Ciphertext<DCRTPoly>> vect_i(N_q*S,E_pack);
+  vector<vector<Ciphertext<DCRTPoly>>> all_extractions;//(cuts,vect_i);
   
-  vector<Ciphertext<DCRTPoly>> vect_i(N_q*S,E_pack);
-  vector<vector<Ciphertext<DCRTPoly>>> all_extractions(cuts,vect_i);
-  
-  TimeVar t;
-  double processingTime(0.0);
+  processingTime=0.0;
   TIC(t);
   
-  full_extraction(all_extractions.begin(), E_Packs,lbd, S, cuts, cc);
+  full_extraction(all_extractions, E_Packs,lbd, S, cuts, cc);
 
   processingTime = TOC(t);
   
   cout << "extractions: " << processingTime/(1000) << "s"<<endl;
   
-  processingTime = 0.0;
-  TIC(t);
-  #pragma omp parallel for
-  for (long l=0;l<1000;++l)
-  {
-    Ciphertext<DCRTPoly> time;
-    vector<Ciphertext<DCRTPoly>> T(column,time);
-    for (long j=0;j<column;++j)
-    {
-      T[j] = cc->EvalMult(cc->MakePackedPlaintext(M[0][0]),all_extractions[cuts-1][0]);
-    }
-    time = cc->EvalAddMany(T);
-    vector<Ciphertext<DCRTPoly>> Q(cuts,time);
-    time = cc->EvalMultMany(Q);
-    
-  }
-  processingTime = TOC(t);
-  
-  cout << "Things to do many times : " << processingTime/1000 << "ms; estimated total time: "<<(pow(column,cuts-1)*processingTime*N_a)/(1000*1000)<<" s" << std::endl;
-  
   vector<Ciphertext<DCRTPoly>> Answers(N_a,E_pack);
   
-  full_evaluation(Answers, M.begin(), all_extractions.begin(),cuts, N_q*S, cc);
+  full_evaluation(Answers, M.begin(), all_extractions.begin(), cuts, N_q*S, cc);
   
   for(int i=0;i<N_a;++i) 
   {
@@ -709,8 +726,6 @@ int main(int argc, char* argv[])
     cc->Decrypt(kp.secretKey, Answers[i], &testmat);
     vector<int64_t> result = testmat->GetPackedValue();
     cout<<"VERIF "<<i<<" : "<<verification(expected[i], result,choice,row,cc)<<endl;
-    //cout<<"Expected ::: "<<expected[i]<<endl;
-    //cout<<"Result ::: "<<result<<endl;
   }
   
   return 0;
