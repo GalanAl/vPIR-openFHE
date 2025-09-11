@@ -272,6 +272,15 @@ void get_col_j(vector<int64_t>::iterator beg_col, vector<Plaintext>::const_itera
 }
 void full_evaluation(vector<Ciphertext<DCRTPoly>>& Answers, vector<vector<Plaintext>>::const_iterator beg_M, vector<vector<Ciphertext<DCRTPoly>>>::const_iterator beg_extract, const int cuts, const int32_t column, const CryptoContext<DCRTPoly>& cc)
 {
+  int64_t numthreads(1);
+
+    #if defined(_OPENMP)
+    #pragma omp parallel
+    #pragma omp single
+    {
+      numthreads = omp_get_num_threads();
+    }
+    #endif
   TimeVar t;
   double processingTime(0.0);
   TIC(t);
@@ -299,25 +308,25 @@ void full_evaluation(vector<Ciphertext<DCRTPoly>>& Answers, vector<vector<Plaint
     {
       vector<Ciphertext<DCRTPoly>>::const_iterator beg_v = (*(beg_extract)).begin();
       vector<Ciphertext<DCRTPoly>>::const_iterator beg_rot = (*(beg_extract+1)).begin();
-      for(int i=0;i<int(Answers.size());++i)
+      vector<Ciphertext<DCRTPoly>> Accu(column);
+      int N_q = int(Answers.size());
+      vector<vector<Ciphertext<DCRTPoly>>> Accu_i(N_q,Accu);
+      vector<vector<Ciphertext<DCRTPoly>>>::iterator beg_A = Accu_i.begin();
+      int32_t Col = N_q*column;
+      cout<<"wasted threads : "<<((numthreads-(Col%numthreads))*100/Col)<<"%"<<endl;
+
+      #pragma omp parallel for shared(beg_A,beg_M,beg_rot,beg_v)
+      for(int32_t A=0;A<Col;++A)
       {
-        vector<Ciphertext<DCRTPoly>> Accu(column);
-        vector<Ciphertext<DCRTPoly>>::iterator beg_A = Accu.begin();
-        vector<Plaintext>::const_iterator beg_Mi = (*(beg_M+i)).begin();
-
-        #pragma omp parallel for shared(beg_A,beg_Mi,beg_rot,beg_v)
-        for(int32_t A=0;A<column;++A)
-        {
-                *(beg_A+A) = cc->EvalMult(*(beg_Mi),*(beg_rot));
-                for(int32_t C=1;C<column;++C)
-                {
-                        *(beg_A+A) +=cc->EvalMult(*(beg_Mi+C),*(beg_rot+C));
-                }
-                *(beg_A+A) *= *(beg_v+A);
-
-        }
-        Answers[i] = cc->EvalAddMany(Accu);
+              (*(beg_A+A/column))[A%column] = cc->EvalMult((*(beg_M+A/column))[0],*(beg_rot));
+              for(int32_t C=1;C<column;++C)
+              {
+                      (*(beg_A+A/column))[A%column] +=cc->EvalMult((*(beg_M+A/column))[C],*(beg_rot+C));
+              }
+              (*(beg_A+A/column))[A%column] *= *(beg_v+A%column);   
       }
+      #pragma omp parallel for
+      for(int i=0;i<N_q;++i) Answers[i] = cc->EvalAddMany(Accu_i[i]);
       break;
     }
     case 3:
@@ -325,29 +334,29 @@ void full_evaluation(vector<Ciphertext<DCRTPoly>>& Answers, vector<vector<Plaint
       vector<Ciphertext<DCRTPoly>>::const_iterator beg_v1 = (*(beg_extract)).begin();
       vector<Ciphertext<DCRTPoly>>::const_iterator beg_v2 = (*(beg_extract+1)).begin();
       vector<Ciphertext<DCRTPoly>>::const_iterator beg_rot = (*(beg_extract+2)).begin();
-      for(int i=0;i<int(Answers.size());++i)
+      vector<Ciphertext<DCRTPoly>> Accu(column);
+      int N_q = int(Answers.size());
+      vector<vector<Ciphertext<DCRTPoly>>> Accu_i(N_q,Accu);
+      vector<vector<Ciphertext<DCRTPoly>>>::iterator beg_A = Accu_i.begin();
+      int32_t Col = N_q*column;
+      cout<<"wasted threads : "<<((numthreads-(Col%numthreads))*100/Col)<<"%"<<endl;
+      #pragma omp parallel for shared(beg_A,beg_M,beg_rot,beg_v1,beg_v2)
+      for(int32_t A=0;A<Col;++A) 
       {
-        vector<Ciphertext<DCRTPoly>> Accu(column);
-        vector<Ciphertext<DCRTPoly>>::iterator beg_A = Accu.begin();
-        vector<Plaintext>::const_iterator beg_Mi = (*(beg_M+i)).begin();
-        #pragma omp parallel for shared(beg_A,beg_Mi,beg_rot,beg_v1,beg_v2)
-        for(int32_t A=0;A<column;++A)
-        {
-                vector<Ciphertext<DCRTPoly>> Bccu(column);
-                for(int32_t B=0;B<column;++B)
+              vector<Ciphertext<DCRTPoly>> Bccu(column);
+              for(int32_t B=0;B<column;++B)
+              {
+                Bccu[B] = cc->EvalMult((*(beg_M+A/column))[0],*(beg_rot));
+                for(int32_t C=1;C<column;++C)
                 {
-                        Bccu[B] = cc->EvalMult(*(beg_Mi),*(beg_rot));
-                        for(int32_t C=1;C<column;++C)
-                        {
-                                Bccu[B] +=cc->EvalMult(*(beg_Mi+C),*(beg_rot+C));
-                        }
-                        Bccu[B] *= *(beg_v2+B);
+                        Bccu[B] +=cc->EvalMult((*(beg_M+A/column))[C],*(beg_rot+C));
                 }
-                *(beg_A+A) = cc->EvalMult(*(beg_v1+A),cc->EvalAddMany(Bccu));
-        }
-
-        Answers[i] = cc->EvalAddMany(Accu);
+                Bccu[B] *= *(beg_v2+B);
+              }  
+              (*(beg_A+A/column))[A%column] = cc->EvalMult(*(beg_v1+A%column),cc->EvalAddMany(Bccu)); 
       }
+      #pragma omp parallel for
+      for(int i=0;i<N_q;++i) Answers[i] = cc->EvalAddMany(Accu_i[i]);
       break;
     }
     case 4:
@@ -356,34 +365,34 @@ void full_evaluation(vector<Ciphertext<DCRTPoly>>& Answers, vector<vector<Plaint
       vector<Ciphertext<DCRTPoly>>::const_iterator beg_v2 = (*(beg_extract+1)).begin();
       vector<Ciphertext<DCRTPoly>>::const_iterator beg_v3 = (*(beg_extract+2)).begin();
       vector<Ciphertext<DCRTPoly>>::const_iterator beg_rot = (*(beg_extract+3)).begin();
-
-      for(int i=0;i<int(Answers.size());++i)
+      vector<Ciphertext<DCRTPoly>> Accu(column);
+      int N_q = int(Answers.size());
+      vector<vector<Ciphertext<DCRTPoly>>> Accu_i(N_q,Accu);
+      vector<vector<Ciphertext<DCRTPoly>>>::iterator beg_A = Accu_i.begin();
+      int32_t Col = N_q*column;
+      cout<<"wasted threads : "<<((numthreads-(Col%numthreads))*100/Col)<<"%"<<endl;
+      #pragma omp parallel for shared(beg_A,beg_M,beg_rot,beg_v1,beg_v2)
+      for(int32_t A=0;A<Col;++A) 
       {
-        vector<Ciphertext<DCRTPoly>> Accu(column);
-        vector<Ciphertext<DCRTPoly>>::iterator beg_A = Accu.begin();
-        vector<Plaintext>::const_iterator beg_Mi = (*(beg_M+i)).begin();
-        #pragma omp parallel for shared(beg_A,beg_Mi,beg_rot,beg_v1,beg_v2,beg_v3)
-        for(int32_t A=0;A<column;++A)
-        {
-          vector<Ciphertext<DCRTPoly>> Bccu(column);
-          for(int32_t B=0;B<column;++B)
-          {
-            vector<Ciphertext<DCRTPoly>> Cccu(column);
-            for(int32_t C=0;C<column;++C)
-            {
-                Cccu[C] = cc->EvalMult(*(beg_Mi),*(beg_rot));
-                for(int32_t D=1;D<column;++D)
-                {
-                        Cccu[C] +=cc->EvalMult(*(beg_Mi+D),*(beg_rot+D));
-                }
-                Cccu[C] *= *(beg_v3+C);
-            }
-            Bccu[B] = cc->EvalMult(cc->EvalAddMany(Cccu),*(beg_v2+B));
-          }
-          (*(beg_A+A)) = cc->EvalMult(cc->EvalAddMany(Bccu),*(beg_v1+A));
-        }
-        Answers[i] = cc->EvalAddMany(Accu);
+              vector<Ciphertext<DCRTPoly>> Bccu(column);
+              vector<Ciphertext<DCRTPoly>> Cccu(column);
+              for(int32_t B=0;B<column;++B)
+              {           
+                  for(int32_t C=0;C<column;++C)
+                  {
+                      Cccu[C] = cc->EvalMult((*(beg_M+A/column))[0],*(beg_rot));
+                      for(int32_t D=1;D<column;++D)
+                      {
+                              Cccu[C] +=cc->EvalMult((*(beg_M+A/column))[D],*(beg_rot+D));
+                      }
+                      Cccu[C]*= *(beg_v3+C);
+                  }
+                  Bccu[B] = cc->EvalMult(*(beg_v2+B),cc->EvalAddMany(Cccu));
+              }  
+              (*(beg_A+A/column))[A%column] = cc->EvalMult(*(beg_v1+A%column),cc->EvalAddMany(Bccu)); 
       }
+      #pragma omp parallel for
+      for(int i=0;i<N_q;++i) Answers[i] = cc->EvalAddMany(Accu_i[i]);
       break;
     }
     case 5:
@@ -393,39 +402,39 @@ void full_evaluation(vector<Ciphertext<DCRTPoly>>& Answers, vector<vector<Plaint
       vector<Ciphertext<DCRTPoly>>::const_iterator beg_v3 = (*(beg_extract+2)).begin();
       vector<Ciphertext<DCRTPoly>>::const_iterator beg_v4 = (*(beg_extract+3)).begin();
       vector<Ciphertext<DCRTPoly>>::const_iterator beg_rot = (*(beg_extract+4)).begin();
-
-      for(int i=0;i<int(Answers.size());++i)
+      vector<Ciphertext<DCRTPoly>> Accu(column);
+      int N_q = int(Answers.size());
+      vector<vector<Ciphertext<DCRTPoly>>> Accu_i(N_q,Accu);
+      vector<vector<Ciphertext<DCRTPoly>>>::iterator beg_A = Accu_i.begin();
+      int32_t Col = N_q*column;
+      cout<<"wasted threads : "<<((numthreads-(Col%numthreads))*100/Col)<<"%"<<endl;
+      #pragma omp parallel for shared(beg_A,beg_M,beg_rot,beg_v1,beg_v2)
+      for(int32_t A=0;A<Col;++A) 
       {
-        vector<Ciphertext<DCRTPoly>> Accu(column);
-        vector<Ciphertext<DCRTPoly>>::iterator beg_A = Accu.begin();
-        vector<Plaintext>::const_iterator beg_Mi = (*(beg_M+i)).begin();
-        #pragma omp parallel for shared(beg_A,beg_Mi,beg_rot,beg_v1,beg_v2,beg_v3,beg_v4)
-        for(int32_t A=0;A<column;++A) //TODO AB=0<<column**2 ?
-        {
-          vector<Ciphertext<DCRTPoly>> Bccu(column);
-          for(int32_t B=0;B<column;++B)
-          {
-            vector<Ciphertext<DCRTPoly>> Cccu(column);
-            for(int32_t C=0;C<column;++C)
-            {
-                vector<Ciphertext<DCRTPoly>> Dccu(column);
-                for(int32_t D=0;D<column;++D)
-                {
-                        Dccu[D] = cc->EvalMult(*(beg_Mi),*(beg_rot));
-                        for(int32_t E=1;E<column;++E)
-                        {
-                                Dccu[D] +=cc->EvalMult(*(beg_Mi+E),*(beg_rot+E));
-                        }
-                        Dccu[D] *= *(beg_v4+D);
-                }
-                Cccu[C] = cc->EvalMult(cc->EvalAddMany(Dccu),*(beg_v3+C));;
-            }
-            Bccu[B] = cc->EvalMult(cc->EvalAddMany(Cccu),*(beg_v2+B));
-          }
-          (*(beg_A+A)) = cc->EvalMult(cc->EvalAddMany(Bccu),*(beg_v1+A));
-        }
-        Answers[i] = cc->EvalAddMany(Accu);
+              vector<Ciphertext<DCRTPoly>> Bccu(column);
+              vector<Ciphertext<DCRTPoly>> Cccu(column);
+              vector<Ciphertext<DCRTPoly>> Dccu(column);
+              for(int32_t B=0;B<column;++B)
+              {           
+                  for(int32_t C=0;C<column;++C)
+                  {
+                      for(int32_t D=0;D<column;++D)
+                      {
+                          Dccu[D] = cc->EvalMult((*(beg_M+A/column))[0],*(beg_rot));
+                          for(int32_t E=1;E<column;++E)
+                          {
+                                  Dccu[D] +=cc->EvalMult((*(beg_M+A/column))[E],*(beg_rot+E));
+                          }
+                          Dccu[D]*= *(beg_v4+D);
+                      }
+                      Cccu[C] = cc->EvalMult(*(beg_v3+C),cc->EvalAddMany(Dccu));
+                  }
+                  Bccu[B] = cc->EvalMult(*(beg_v2+B),cc->EvalAddMany(Cccu));
+              }  
+              (*(beg_A+A/column))[A%column] = cc->EvalMult(*(beg_v1+A%column),cc->EvalAddMany(Bccu)); 
       }
+      #pragma omp parallel for
+      for(int i=0;i<N_q;++i) Answers[i] = cc->EvalAddMany(Accu_i[i]);
       break;
     }
   }
