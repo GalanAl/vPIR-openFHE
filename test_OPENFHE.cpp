@@ -313,7 +313,7 @@ void full_evaluation(vector<Ciphertext<DCRTPoly>>& Answers, vector<vector<Plaint
       vector<vector<Ciphertext<DCRTPoly>>> Accu_i(N_q,Accu);
       vector<vector<Ciphertext<DCRTPoly>>>::iterator beg_A = Accu_i.begin();
       int32_t Col = N_q*column;
-      cout<<"wasted threads : "<<((numthreads-(Col%numthreads))*100/Col)<<"%"<<endl;
+      cout<<"deviation from optimal parallelism : "<<(100*(1+Col/numthreads)*numthreads)/Col<<"%"<<endl;
 
       #pragma omp parallel for shared(beg_A,beg_M,beg_rot,beg_v)
       for(int32_t A=0;A<Col;++A)
@@ -339,7 +339,7 @@ void full_evaluation(vector<Ciphertext<DCRTPoly>>& Answers, vector<vector<Plaint
       vector<vector<Ciphertext<DCRTPoly>>> Accu_i(N_q,Accu);
       vector<vector<Ciphertext<DCRTPoly>>>::iterator beg_A = Accu_i.begin();
       int32_t Col = N_q*column;
-      cout<<"wasted threads : "<<((numthreads-(Col%numthreads))*100/Col)<<"%"<<endl;
+      cout<<"deviation from optimal parallelism : "<<(100*(1+Col/numthreads)*numthreads)/Col<<"%"<<endl;
       #pragma omp parallel for shared(beg_A,beg_M,beg_rot,beg_v1,beg_v2)
       for(int32_t A=0;A<Col;++A) 
       {
@@ -370,7 +370,7 @@ void full_evaluation(vector<Ciphertext<DCRTPoly>>& Answers, vector<vector<Plaint
       vector<vector<Ciphertext<DCRTPoly>>> Accu_i(N_q,Accu);
       vector<vector<Ciphertext<DCRTPoly>>>::iterator beg_A = Accu_i.begin();
       int32_t Col = N_q*column;
-      cout<<"wasted threads : "<<((numthreads-(Col%numthreads))*100/Col)<<"%"<<endl;
+      cout<<"deviation from optimal parallelism : "<<(100*(1+Col/numthreads)*numthreads)/Col<<"%"<<endl;
       #pragma omp parallel for shared(beg_A,beg_M,beg_rot,beg_v1,beg_v2)
       for(int32_t A=0;A<Col;++A) 
       {
@@ -407,7 +407,7 @@ void full_evaluation(vector<Ciphertext<DCRTPoly>>& Answers, vector<vector<Plaint
       vector<vector<Ciphertext<DCRTPoly>>> Accu_i(N_q,Accu);
       vector<vector<Ciphertext<DCRTPoly>>>::iterator beg_A = Accu_i.begin();
       int32_t Col = N_q*column;
-      cout<<"wasted threads : "<<((numthreads-(Col%numthreads))*100/Col)<<"%"<<endl;
+      cout<<"deviation from optimal parallelism : "<<(100*(1+Col/numthreads)*numthreads)/Col<<"%"<<endl;
       #pragma omp parallel for shared(beg_A,beg_M,beg_rot,beg_v1,beg_v2)
       for(int32_t A=0;A<Col;++A) 
       {
@@ -700,8 +700,7 @@ int main(int argc, char* argv[])
     get_col_j(expected[i].begin(),M[i].begin(),index,column,row);
   }
   
-  //vector<Ciphertext<DCRTPoly>> vect_i(N_q*S,E_pack);
-  vector<vector<Ciphertext<DCRTPoly>>> all_extractions;//(cuts,vect_i);
+  vector<vector<Ciphertext<DCRTPoly>>> all_extractions;
   
   processingTime=0.0;
   TIC(t);
