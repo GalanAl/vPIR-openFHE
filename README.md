@@ -26,6 +26,14 @@
 
 ## Run the program
 
--./test_OPENFHE X 
-- X is the number of cut for the query
+-./test_OPENFHE C N_q N_a lbd
+- C : number of cuts per query ; N_q(=1) : number of ciphertexts queried ; N_a(=1) : number of ciphertexts answered ; lbd(=42) : number of real+verif queries
+
+## Outputs 
+
+- Size of the database wrt the input parameters
+- Write the keys, the queries and the answers into files
+- Estimates the time required for the protocol wrt the cost of each homomorphic basic operation in parallel on the machine
+- Give the real time of each part of the protocol (packing, unpacking, evaluation)
+- Verifies that the decrypted results corresponds to the expected result
 
