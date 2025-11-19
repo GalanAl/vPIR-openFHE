@@ -10,8 +10,8 @@ using namespace std;
 
 const string DATAFOLDER = "SizeData";
 
-//rotate inplace by k slots to the right (warning: Ctxt is a 2x#slots/2 matrix)
-//(0,...,#slot/2-1,#slot/2,...,#slot-1)-->(#slots/2-k,...,#slots/2-k-1,#slots-k,...,#slots-k-1)
+//rotate inplace by k slots to the right (warning: Ctxt is a 2xS/2 matrix)
+//(0,...,S/2-1,S/2,...,S-1)-->(S/2-k,...,S/2-k-1,S-k,...,S-k-1)
 void rotate_k(Ciphertext<DCRTPoly>& ctxt, const CryptoContext<DCRTPoly>& cc, const int32_t k)
 {
   int32_t sig =k>0?1:-1;
@@ -57,7 +57,7 @@ void fill_slots(Ciphertext<DCRTPoly>& V,const int32_t N, const CryptoContext<DCR
 // write index in the base correcponding to the query vector sizes
 void query_gen(vector<vector<int64_t>>& query, const int64_t index)
 { 
-  int64_t expo = pow(query[0].size(),query.size()); 
+  int64_t expo = 1; for(int i=0;i<int(query.size());++i) expo*=query[i].size();
   int64_t Q; int64_t R=index;
   for(int i=0;i<int(query.size());++i) 
   {
@@ -78,7 +78,7 @@ void random_gen(vector<vector<int64_t>>& verif, const CryptoContext<DCRTPoly>& c
   return;
 }
 
-// pack the query and verification vectors in N_q plaintexts, depending on the choices vector
+// pack the query and verification vectors into N_q plaintexts, depending on the choices vector
 void packing(vector<Plaintext>& Packs, vector<bool>& choices, vector<vector<int64_t>>& verif, vector<vector<int64_t>>& query, const CryptoContext<DCRTPoly>& cc )
 {
   TimeVar t;
@@ -284,49 +284,35 @@ void full_evaluation(vector<Ciphertext<DCRTPoly>>& Answers, vector<vector<Plaint
   TimeVar t;
   double processingTime(0.0);
   TIC(t);
+   
+  int real = 0; //Set to 1 if the real database has been generated
+  
+  vector<Ciphertext<DCRTPoly>> Accu(column);
+  int N_a = int(Answers.size());
+  vector<vector<Ciphertext<DCRTPoly>>> Accu_i(N_a,Accu);
+  vector<vector<Ciphertext<DCRTPoly>>>::iterator beg_A = Accu_i.begin();
+  int32_t Col = N_a*column;
+  cout<<"deviation from optimal parallelism : "<<(100*(1+Col/numthreads)*numthreads)/Col<<"%"<<endl;
 
   switch(cuts)
   {
-    case 1:
-    {
-      vector<Ciphertext<DCRTPoly>>::const_iterator beg_rot = (*(beg_extract)).begin();
-      for(int i=0;i<int(Answers.size());++i)
-      {
-        vector<Ciphertext<DCRTPoly>> Accu(column);
-        vector<Ciphertext<DCRTPoly>>::iterator beg_A = Accu.begin();
-        vector<Plaintext>::const_iterator beg_Mi = (*(beg_M+i)).begin();
-        #pragma omp parallel for shared(beg_A,beg_Mi)
-        for(int32_t A=0;A<column;++A)
-        {
-                *(beg_A+A) =cc->EvalMult(*(beg_Mi+A),*(beg_rot+A));
-        }
-        Answers[i] = cc->EvalAddMany(Accu);
-      }
-      break;
-    }
     case 2:
     {
       vector<Ciphertext<DCRTPoly>>::const_iterator beg_v = (*(beg_extract)).begin();
       vector<Ciphertext<DCRTPoly>>::const_iterator beg_rot = (*(beg_extract+1)).begin();
-      vector<Ciphertext<DCRTPoly>> Accu(column);
-      int N_q = int(Answers.size());
-      vector<vector<Ciphertext<DCRTPoly>>> Accu_i(N_q,Accu);
-      vector<vector<Ciphertext<DCRTPoly>>>::iterator beg_A = Accu_i.begin();
-      int32_t Col = N_q*column;
-      cout<<"deviation from optimal parallelism : "<<(100*(1+Col/numthreads)*numthreads)/Col<<"%"<<endl;
 
       #pragma omp parallel for shared(beg_A,beg_M,beg_rot,beg_v)
       for(int32_t A=0;A<Col;++A)
       {
-              (*(beg_A+A/column))[A%column] = cc->EvalMult((*(beg_M+A/column))[0],*(beg_rot));
+              (*(beg_A+A/column))[A%column] = cc->EvalMult((*(beg_M+A/column))[real*((A/N_a)*column)],*(beg_rot));
               for(int32_t C=1;C<column;++C)
               {
-                      (*(beg_A+A/column))[A%column] +=cc->EvalMult((*(beg_M+A/column))[C],*(beg_rot+C));
+                      (*(beg_A+A/column))[A%column] +=cc->EvalMult((*(beg_M+A/column))[C+real*((A/N_a)*column)],*(beg_rot+C));
               }
-              (*(beg_A+A/column))[A%column] *= *(beg_v+A%column);   
+              (*(beg_A+A/column))[A%column] *= *(beg_v+A%column);
       }
       #pragma omp parallel for
-      for(int i=0;i<N_q;++i) Answers[i] = cc->EvalAddMany(Accu_i[i]);
+      for(int i=0;i<N_a;++i) Answers[i] = cc->EvalAddMany(Accu_i[i]);
       break;
     }
     case 3:
@@ -334,29 +320,24 @@ void full_evaluation(vector<Ciphertext<DCRTPoly>>& Answers, vector<vector<Plaint
       vector<Ciphertext<DCRTPoly>>::const_iterator beg_v1 = (*(beg_extract)).begin();
       vector<Ciphertext<DCRTPoly>>::const_iterator beg_v2 = (*(beg_extract+1)).begin();
       vector<Ciphertext<DCRTPoly>>::const_iterator beg_rot = (*(beg_extract+2)).begin();
-      vector<Ciphertext<DCRTPoly>> Accu(column);
-      int N_q = int(Answers.size());
-      vector<vector<Ciphertext<DCRTPoly>>> Accu_i(N_q,Accu);
-      vector<vector<Ciphertext<DCRTPoly>>>::iterator beg_A = Accu_i.begin();
-      int32_t Col = N_q*column;
-      cout<<"deviation from optimal parallelism : "<<(100*(1+Col/numthreads)*numthreads)/Col<<"%"<<endl;
+      
       #pragma omp parallel for shared(beg_A,beg_M,beg_rot,beg_v1,beg_v2)
-      for(int32_t A=0;A<Col;++A) 
+      for(int32_t A=0;A<Col;++A)
       {
               vector<Ciphertext<DCRTPoly>> Bccu(column);
               for(int32_t B=0;B<column;++B)
               {
-                Bccu[B] = cc->EvalMult((*(beg_M+A/column))[0],*(beg_rot));
+                Bccu[B] = cc->EvalMult((*(beg_M+A/column))[real*(((A/N_a)*column+B)*column)],*(beg_rot));
                 for(int32_t C=1;C<column;++C)
                 {
-                        Bccu[B] +=cc->EvalMult((*(beg_M+A/column))[C],*(beg_rot+C));
+                        Bccu[B] +=cc->EvalMult((*(beg_M+A/column))[C+real*(((A/N_a)*column+B)*column)],*(beg_rot+C));
                 }
-                Bccu[B] *= *(beg_v2+B);
-              }  
-              (*(beg_A+A/column))[A%column] = cc->EvalMult(*(beg_v1+A%column),cc->EvalAddMany(Bccu)); 
+                Bccu[B] *= cc->EvalMult(*(beg_v1+A%column),*(beg_v2+B));
+              }
+              (*(beg_A+A/column))[A%column] =cc->EvalAddMany(Bccu);
       }
       #pragma omp parallel for
-      for(int i=0;i<N_q;++i) Answers[i] = cc->EvalAddMany(Accu_i[i]);
+      for(int i=0;i<N_a;++i) Answers[i] = cc->EvalAddMany(Accu_i[i]);
       break;
     }
     case 4:
@@ -365,34 +346,29 @@ void full_evaluation(vector<Ciphertext<DCRTPoly>>& Answers, vector<vector<Plaint
       vector<Ciphertext<DCRTPoly>>::const_iterator beg_v2 = (*(beg_extract+1)).begin();
       vector<Ciphertext<DCRTPoly>>::const_iterator beg_v3 = (*(beg_extract+2)).begin();
       vector<Ciphertext<DCRTPoly>>::const_iterator beg_rot = (*(beg_extract+3)).begin();
-      vector<Ciphertext<DCRTPoly>> Accu(column);
-      int N_q = int(Answers.size());
-      vector<vector<Ciphertext<DCRTPoly>>> Accu_i(N_q,Accu);
-      vector<vector<Ciphertext<DCRTPoly>>>::iterator beg_A = Accu_i.begin();
-      int32_t Col = N_q*column;
-      cout<<"deviation from optimal parallelism : "<<(100*(1+Col/numthreads)*numthreads)/Col<<"%"<<endl;
+
       #pragma omp parallel for shared(beg_A,beg_M,beg_rot,beg_v1,beg_v2)
-      for(int32_t A=0;A<Col;++A) 
+      for(int32_t A=0;A<Col;++A)
       {
               vector<Ciphertext<DCRTPoly>> Bccu(column);
               vector<Ciphertext<DCRTPoly>> Cccu(column);
               for(int32_t B=0;B<column;++B)
-              {           
+              {
                   for(int32_t C=0;C<column;++C)
                   {
-                      Cccu[C] = cc->EvalMult((*(beg_M+A/column))[0],*(beg_rot));
+                      Cccu[C] = cc->EvalMult((*(beg_M+A/column))[real*((((A/N_a)*column+B)*column+C)*column)],*(beg_rot));
                       for(int32_t D=1;D<column;++D)
                       {
-                              Cccu[C] +=cc->EvalMult((*(beg_M+A/column))[D],*(beg_rot+D));
+                              Cccu[C] +=cc->EvalMult((*(beg_M+A/column))[D+real*((((A/N_a)*column+B)*column+C)*column)],*(beg_rot+D));
                       }
-                      Cccu[C]*= *(beg_v3+C);
+                      Cccu[C]*= cc->EvalMult(*(beg_v2+B),*(beg_v3+C));
                   }
-                  Bccu[B] = cc->EvalMult(*(beg_v2+B),cc->EvalAddMany(Cccu));
-              }  
-              (*(beg_A+A/column))[A%column] = cc->EvalMult(*(beg_v1+A%column),cc->EvalAddMany(Bccu)); 
+                  Bccu[B] = cc->EvalAddMany(Cccu);
+              }
+              (*(beg_A+A/column))[A%column] = cc->EvalMult(*(beg_v1+A%column),cc->EvalAddMany(Bccu));
       }
       #pragma omp parallel for
-      for(int i=0;i<N_q;++i) Answers[i] = cc->EvalAddMany(Accu_i[i]);
+      for(int i=0;i<N_a;++i) Answers[i] = cc->EvalAddMany(Accu_i[i]);
       break;
     }
     case 5:
@@ -402,41 +378,37 @@ void full_evaluation(vector<Ciphertext<DCRTPoly>>& Answers, vector<vector<Plaint
       vector<Ciphertext<DCRTPoly>>::const_iterator beg_v3 = (*(beg_extract+2)).begin();
       vector<Ciphertext<DCRTPoly>>::const_iterator beg_v4 = (*(beg_extract+3)).begin();
       vector<Ciphertext<DCRTPoly>>::const_iterator beg_rot = (*(beg_extract+4)).begin();
-      vector<Ciphertext<DCRTPoly>> Accu(column);
-      int N_q = int(Answers.size());
-      vector<vector<Ciphertext<DCRTPoly>>> Accu_i(N_q,Accu);
-      vector<vector<Ciphertext<DCRTPoly>>>::iterator beg_A = Accu_i.begin();
-      int32_t Col = N_q*column;
-      cout<<"deviation from optimal parallelism : "<<(100*(1+Col/numthreads)*numthreads)/Col<<"%"<<endl;
+      
       #pragma omp parallel for shared(beg_A,beg_M,beg_rot,beg_v1,beg_v2)
-      for(int32_t A=0;A<Col;++A) 
+      for(int32_t A=0;A<Col;++A)
       {
               vector<Ciphertext<DCRTPoly>> Bccu(column);
               vector<Ciphertext<DCRTPoly>> Cccu(column);
               vector<Ciphertext<DCRTPoly>> Dccu(column);
               for(int32_t B=0;B<column;++B)
-              {           
+              {
                   for(int32_t C=0;C<column;++C)
                   {
                       for(int32_t D=0;D<column;++D)
                       {
-                          Dccu[D] = cc->EvalMult((*(beg_M+A/column))[0],*(beg_rot));
+                          Dccu[D] = cc->EvalMult((*(beg_M+A/column))[real*(((((A/N_a)*column+B)*column+C)*column+D)*column)],*(beg_rot));
                           for(int32_t E=1;E<column;++E)
                           {
-                                  Dccu[D] +=cc->EvalMult((*(beg_M+A/column))[E],*(beg_rot+E));
+                                  Dccu[D] +=cc->EvalMult((*(beg_M+A/column))[E+real*(((((A/N_a)*column+B)*column+C)*column+D)*column)],*(beg_rot+E));
                           }
-                          Dccu[D]*= *(beg_v4+D);
+                          Dccu[D]*= cc->EvalMult(*(beg_v3+C),*(beg_v4+D));
                       }
-                      Cccu[C] = cc->EvalMult(*(beg_v3+C),cc->EvalAddMany(Dccu));
+                      Cccu[C] = cc->EvalAddMany(Dccu);
                   }
-                  Bccu[B] = cc->EvalMult(*(beg_v2+B),cc->EvalAddMany(Cccu));
-              }  
-              (*(beg_A+A/column))[A%column] = cc->EvalMult(*(beg_v1+A%column),cc->EvalAddMany(Bccu)); 
+                  Bccu[B] = cc->EvalMult( cc->EvalMult(*(beg_v1+A%column),*(beg_v2+B)),cc->EvalAddMany(Cccu));
+              }
+              (*(beg_A+A/column))[A%column] = cc->EvalAddMany(Bccu);
       }
       #pragma omp parallel for
-      for(int i=0;i<N_q;++i) Answers[i] = cc->EvalAddMany(Accu_i[i]);
+      for(int i=0;i<N_a;++i) Answers[i] = cc->EvalAddMany(Accu_i[i]);
       break;
     }
+
   }
 
   processingTime = TOC(t);
@@ -444,6 +416,7 @@ void full_evaluation(vector<Ciphertext<DCRTPoly>>& Answers, vector<vector<Plaint
   return;
 }
 
+// Compare the results obtained in clear with the one obtained homomorphically
 bool verification(vector<int64_t>& expected, vector<int64_t>& result, vector<bool>& choice, int32_t sep,const CryptoContext<DCRTPoly>& cc)
 {
   int32_t slots = cc->GetCryptoParameters()->GetElementParams()->GetCyclotomicOrder() / 2;
@@ -455,7 +428,7 @@ bool verification(vector<int64_t>& expected, vector<int64_t>& result, vector<boo
     {
       for(int32_t j=0;j<row;++j)
       {
-        if(expected[j]!=result[(i>=lbd/2?slots/2+(i-lbd/2)*sep:i*sep)+j]){cout<<"LOOOSER "<<i<<endl; return false;}
+        if(expected[j]!=result[(i>=lbd/2?slots/2+(i-lbd/2)*sep:i*sep)+j]){return false;}
       }
     }
   }
@@ -464,13 +437,12 @@ bool verification(vector<int64_t>& expected, vector<int64_t>& result, vector<boo
 
 int main(int argc, char* argv[]) 
 {  
-    
     if(argc <= 1)
     {
-      cerr << "Usage: " << argv[0] << " <number of cuts (1 :: 6)><number of query ctxt (default = 1)><number of answer ctxt (default = 1)><lambda (default = 42)> " << endl;
+      cerr << "Usage: " << argv[0] << " <number of cuts (1 :: 5)><number of query ctxt (default = 1)><number of answer ctxt (default = 1)><lambda (default = 42)> " << endl;
       exit(0);
     }
-    int cuts = (argc>1?atoi(argv[1]):6);
+    int cuts = atoi(argv[1]);
     int N_q = (argc>2?atoi(argv[2]):1);
     int N_a = (argc>3?atoi(argv[3]):1);
     int lbd = (argc>4?atoi(argv[4]):42);
@@ -495,7 +467,7 @@ int main(int argc, char* argv[])
 
     parameters.SetPlaintextModulus(281474978414593);
     parameters.SetMaxRelinSkDeg(3);
-    parameters.SetMultiplicativeDepth(5);
+    parameters.SetMultiplicativeDepth(cuts<4?3:4);
     parameters.SetSecurityLevel(HEStd_128_classic);
     
 
@@ -519,26 +491,24 @@ int main(int argc, char* argv[])
         
     // Initialize the public key containers.
     KeyPair<DCRTPoly> kp = cc->KeyGen();
-
     std::vector<int32_t> indexList; for(int32_t i=1;i<slots/2;i*=2){ indexList.push_back(int32_t(i));indexList.push_back(int32_t(-i));}
+    
+    //Generate all the 2^i rotation keys
     cc->EvalRotateKeyGen(kp.secretKey, indexList); //Generate all the 2^i rotation keys
     cc->EvalMultKeyGen(kp.secretKey);
     
-    
+    //Keys serialization
     if (!Serial::SerializeToFile(DATAFOLDER + "/key-public.txt", kp.publicKey, SerType::BINARY)) {
         std::cerr << "Error writing serialization of public key to key-public.txt" << std::endl;
         return 1;
     }
     std::cout << "The public key has been serialized." << std::endl;
-
-    // Serialize the secret key
     if (!Serial::SerializeToFile(DATAFOLDER + "/key-private.txt", kp.secretKey, SerType::BINARY)) {
         std::cerr << "Error writing serialization of private key to key-private.txt" << std::endl;
         return 1;
     }
     std::cout << "The secret key has been serialized." << std::endl;
-    
-        std::ofstream emkeyfile(DATAFOLDER + "/" + "key-eval-mult.txt", std::ios::out | std::ios::binary);
+    std::ofstream emkeyfile(DATAFOLDER + "/" + "key-eval-mult.txt", std::ios::out | std::ios::binary);
     if (emkeyfile.is_open()) {
         if (cc->SerializeEvalMultKey(emkeyfile, SerType::BINARY) == false) {
             std::cerr << "Error writing serialization of the eval mult keys to "
@@ -554,8 +524,6 @@ int main(int argc, char* argv[])
         std::cerr << "Error serializing eval mult keys" << std::endl;
         return 1;
     }
-
-    // Serialize the rotation keys
     std::ofstream erkeyfile(DATAFOLDER + "/" + "key-eval-rot.txt", std::ios::out | std::ios::binary);
     if (erkeyfile.is_open()) {
         if (cc->SerializeEvalAutomorphismKey(erkeyfile, SerType::BINARY) == false) {
@@ -575,7 +543,7 @@ int main(int argc, char* argv[])
   
     //********************* CLIENT SIDE *********************//
   int32_t S = ((slots/2)/((lbd+1)/2))/cuts; //area per query vector cuts
-  int32_t row = S*cuts; //size of ptxt areas = #rows in the matrix
+  int32_t row = S*cuts; // the matrix has row*N_a rows
   
   int64_t column = pow(N_q*S,cuts);
   
@@ -686,7 +654,7 @@ int main(int argc, char* argv[])
   cout<<"estimated ctxt-ctxt total time : "<<ctxt_ctxt<<" s" << endl;
   cout<<"estimated TOTAL time : "<<ctxt_ctxt+hom_add+ptxt_ctxt<<" s" << endl;
   
-  column=N_q*S;index = index%(N_q*S); // Delete this line for a real example
+  column=N_q*S;index = index%(N_q*S); // Delete this line to generate the full matrix
   vector<Plaintext> M_i(column); vector<vector<Plaintext>> M(N_a,M_i);
 
   for(int i=0;i<N_a;++i)
