@@ -21,6 +21,7 @@
 - cd vPIR-openFHE
 - mkdir build
 - cd build
+- mkdir SizeData
 - cmake ..
 - make
 
@@ -32,7 +33,7 @@
 ## Outputs 
 
 - Size of the database wrt the input parameters
-- Write the keys, the queries and the answers into files
+- Write the keys, the queries and the answers into SizeData's files
 - Estimates the time required for the protocol wrt the cost of each homomorphic basic operation in parallel on the machine
 - Give the real time of each part of the protocol (packing, unpacking, evaluation)
 - Verifies that the decrypted results corresponds to the expected result
