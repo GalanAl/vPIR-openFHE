@@ -2,8 +2,6 @@
 # Test vPIR under openFHE
 --------------------------------------------------------------------------------
 
-**Authors**:  Daniel S. Roche, Seung Geol Choi, Mayank Varia, Alexis Galan
-
 ## OpenFHE install 
 
 - Installation: 
